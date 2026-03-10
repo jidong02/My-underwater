@@ -9,7 +9,7 @@ from core.wandb_logger import WandbLogger
 from tensorboardX import SummaryWriter
 import os
 import time
-
+import copy
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -53,12 +53,50 @@ if __name__ == "__main__":
     logger.info('Initial Dataset Finished')
 
     # model
+    # diffusion = Model.create_model(opt)
+    # logger.info('Initial Model Finished')
+
+    # diffusion.set_new_noise_schedule(
+    #     opt['model']['beta_schedule']['val'], schedule_phase='val')
+    
+    # model
     diffusion = Model.create_model(opt)
     logger.info('Initial Model Finished')
 
+    # ------------------ prior branch hookup ------------------
+    # 取出真正的 GaussianDiffusion 对象
+    netG = diffusion.netG.module if hasattr(diffusion.netG, 'module') else diffusion.netG
+
+    # 复制一份与 task 相同结构的 denoise_fn，作为 prior 模型
+    prior_model = copy.deepcopy(netG.denoise_fn)
+
+    # 放到同一 device
+    device = next(netG.parameters()).device
+    prior_model = prior_model.to(device)
+
+    # eval + 冻结参数
+    prior_model.eval()
+    for p in prior_model.parameters():
+        p.requires_grad = False
+
+    # 接入 prior
+    netG.prior_denoise_fn = prior_model
+    netG.use_fusion = True
+
+    # 你的三段式 schedule（可按后面实验再调）
+    netG.fusion_cfg.update(dict(
+        alpha_early=0.4,
+        alpha_mid=0.7,
+        alpha_late=1.0,
+        early_ratio=0.4,
+        mid_ratio=0.4,
+    ))
+    # --------------------------------------------------------
+
     diffusion.set_new_noise_schedule(
         opt['model']['beta_schedule']['val'], schedule_phase='val')
-    
+
+
     logger.info('Begin Model Inference.')
     current_step = 0
     current_epoch = 0

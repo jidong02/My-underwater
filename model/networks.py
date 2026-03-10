@@ -114,6 +114,21 @@ def define_G(opt):
         conditional=model_opt['diffusion']['conditional'],
         schedule_opt=model_opt['beta_schedule']['train']
     )
+
+    # ---- inference-time fusion config (v0 sanity check) ----
+    # 先默认不开，避免训练/推理都被影响；等你在 config 里加开关再打开
+    netG.use_fusion = False
+    netG.prior_denoise_fn = None
+
+    # 默认的三段式 schedule（alpha 是 task 权重，prior 权重=1-alpha）
+    netG.fusion_cfg = dict(
+        alpha_early=0.4,
+        alpha_mid=0.7,
+        alpha_late=1.0,   # late 关闭 prior
+        early_ratio=0.4,
+        mid_ratio=0.4
+    )
+
     # if opt['phase'] == 'train':
     #     # init_weights(netG, init_type='kaiming', scale=0.1)
     #     init_weights(netG, init_type='orthogonal')
@@ -121,3 +136,27 @@ def define_G(opt):
         assert torch.cuda.is_available()
         netG = nn.DataParallel(netG)
     return netG
+
+####################
+# define prior model
+####################
+
+class PriorUNet(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super(PriorUNet, self).__init__()
+        self.encoder = nn.Sequential(
+            nn.Conv2d(in_channels, 64, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(64, 128, kernel_size=3, padding=1),
+            nn.ReLU(),
+        )
+        self.decoder = nn.Sequential(
+            nn.Conv2d(128, 64, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(64, out_channels, kernel_size=3, padding=1),
+        )
+
+    def forward(self, x):
+        x = self.encoder(x)
+        x = self.decoder(x)
+        return x

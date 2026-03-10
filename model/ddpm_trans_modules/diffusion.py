@@ -108,6 +108,17 @@ class GaussianDiffusion(nn.Module):
             # self.set_new_noise_schedule(schedule_opt)
         self.eta = 0
         self.sample_proc = 'ddim'
+        # --- fusion (inference-time) 改1：alpha 是给 task 的权重；prior 权重就是 (1-alpha)---
+        self.prior_denoise_fn = None    # callable: prior(x_t, t) -> et_prior
+        self.use_fusion = False
+        # stage-wise schedule (default): early strong prior, mid balanced, late off
+        self.fusion_cfg = dict(
+            alpha_early=0.4,   # alpha = weight for task
+            alpha_mid=0.7,
+            alpha_late=1.0,    # late off prior
+            early_ratio=0.4,   # fraction of steps as "early"
+            mid_ratio=0.4      # fraction as "mid"; remaining is late
+        )
     def set_loss(self, device):
         if self.loss_type == 'l1':
             self.loss_func = nn.L1Loss().to(device)
@@ -268,15 +279,54 @@ class GaussianDiffusion(nn.Module):
 
         return x_prev
 
+    # 改1：这就实现了你想要的“前/中/后期 prior 做什么、什么时候关掉”
+    def _alpha_from_t(self, t: torch.Tensor):
+        """
+        t: (B,) long in [0, num_timesteps)
+        returns alpha: (B,1,1,1) broadcastable
+        """
+        cfg = self.fusion_cfg
+        T = float(self.num_timesteps - 1)
+        # normalize: large t -> early, small t -> late
+        tn = t.float() / T  # in [0,1]
+        # early: tn >= (1 - early_ratio)
+        # mid:   (1 - early_ratio - mid_ratio) <= tn < (1 - early_ratio)
+        early_th = 1.0 - cfg["early_ratio"]
+        mid_th   = 1.0 - cfg["early_ratio"] - cfg["mid_ratio"]
+
+        alpha = torch.full_like(tn, cfg["alpha_late"])
+        alpha = torch.where(tn >= early_th, torch.tensor(cfg["alpha_early"], device=tn.device), alpha)
+        alpha = torch.where((tn >= mid_th) & (tn < early_th), torch.tensor(cfg["alpha_mid"], device=tn.device), alpha)
+
+        return alpha.view(-1, 1, 1, 1)
+
     def p_sample_ddim2(self, x, t, t_next, clip_denoised=True, repeat_noise=False, condition_x=None, style=None):
         b, *_, device = *x.shape, x.device
         bt = extract(self.betas, t, x.shape)
         at = extract((1.0 - self.betas).cumprod(dim=0), t, x.shape)
 
         if condition_x is not None:
-            et = self.denoise_fn(torch.cat([condition_x, x], dim=1), t)
+            et_task = self.denoise_fn(torch.cat([condition_x, x], dim=1), t)
         else:
-            et = self.denoise_fn(x, t)
+            et_task = self.denoise_fn(x, t)
+
+        if self.use_fusion:
+            et_prior = torch.zeros_like(et_task)
+            alpha = self._alpha_from_t(t)
+            et = alpha * et_task + (1.0 - alpha) * et_prior
+        else:
+            et = et_task
+
+
+        # if self.use_fusion and (self.prior_denoise_fn is not None):
+        #     if condition_x is not None:
+        #         et_prior = self.prior_denoise_fn(torch.cat([condition_x, x], dim=1), t)
+        #     else:
+        #         et_prior = self.prior_denoise_fn(x, t)
+        #     alpha = self._alpha_from_t(t)
+        #     et = alpha * et_task + (1.0 - alpha) * et_prior
+        # else:
+        #     et = et_task
 
 
         x0_t = (x - et * (1 - at).sqrt()) / at.sqrt()
