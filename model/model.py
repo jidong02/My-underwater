@@ -16,6 +16,26 @@ class DDPM(BaseModel):
         super(DDPM, self).__init__(opt)
         # define network and load pretrained models
         self.netG = self.set_device(networks.define_G(opt))
+
+        # --------------
+        # 冻结task和prior
+        netG = self.netG.module if hasattr(self.netG, "module") else self.netG
+
+        # freeze task denoiser
+        for p in netG.denoise_fn.parameters():
+            p.requires_grad = False
+
+        # freeze prior branch
+        # if hasattr(netG, "prior_model"):
+        #     for p in netG.prior_model.parameters():
+        #         p.requires_grad = False
+
+        # train only fusion module
+        for p in netG.fusion_module.parameters():
+            p.requires_grad = True
+
+        # -------------------
+
         # self.netG_air = self.set_device(networks.define_G(opt))
         # self.dis_water = self.set_device(D2())
         # self.dis_air = self.set_device(D2())
@@ -34,26 +54,33 @@ class DDPM(BaseModel):
             # self.dis_water.train()
             # self.dis_air.train()
             # find the parameters to optimize
-            if opt['model']['finetune_norm']:
-                optim_params = []
-                for k, v in self.netG.named_parameters():
-                    v.requires_grad = False
-                    if k.find('transformer') >= 0:
-                        v.requires_grad = True
-                        v.data.zero_()
-                        optim_params.append(v)
-                        logger.info(
-                            'Params [{:s}] initialized to 0 and will optimize.'.format(k))
-            else:
-                optim_params = list(self.netG.parameters())
-                # optim_params = list(self.netG.parameters()) + list(self.netG_air.parameters())
-                # optim_params_dis = list(self.dis_air.parameters()) + list(self.dis_water.parameters())
+            netG = self.netG.module if hasattr(self.netG, "module") else self.netG
+
+            # freeze task branch
+            for p in netG.denoise_fn.parameters():
+                p.requires_grad = False
+
+            # freeze prior branch
+            if hasattr(netG, "prior_model"):
+                for p in netG.prior_model.parameters():
+                    p.requires_grad = False
+
+            # train fusion module only
+            for p in netG.fusion_module.parameters():
+                p.requires_grad = True
+
+            fusion_params = []
+            for p in netG.fusion_module.parameters():
+                if p.requires_grad:
+                    fusion_params.append(p)
 
             self.optG = torch.optim.Adam(
-                optim_params, lr=opt['train']["optimizer"]["lr"])
-            # self.optD = torch.optim.Adam(
-            #     optim_params_dis, lr=opt['train']["optimizer"]["lr"])
+                fusion_params,
+                lr=opt['train']['optimizer']['lr']
+            )
+
             self.log_dict = OrderedDict()
+
         self.load_network()
         self.print_network()
 
@@ -203,13 +230,25 @@ class DDPM(BaseModel):
             network = self.netG
             if isinstance(self.netG, nn.DataParallel):
                 network = network.module
-            network.load_state_dict(torch.load(
-                gen_path), strict=(not self.opt['model']['finetune_norm']))
 
-            # load_part_of_model(network, gen_path, s=(not self.opt['model']['finetune_norm']))
+            load_net = torch.load(gen_path)
+
+            missing, unexpected = network.load_state_dict(load_net, strict=False)
+
+            logger.info(f"Missing keys: {missing}")
+            logger.info(f"Unexpected keys: {unexpected}")
+
             if self.opt['phase'] == 'train':
-                # optimizer
-                opt = torch.load(opt_path)
-                self.optG.load_state_dict(opt['optimizer'])
-                self.begin_step = opt['iter']
-                self.begin_epoch = opt['epoch']
+                # 训练融合器时，不加载旧 optimizer 状态
+                self.begin_step = 0
+                self.begin_epoch = 0
+            # network.load_state_dict(torch.load(
+            #     gen_path), strict=(not self.opt['model']['finetune_norm']))
+
+            # # load_part_of_model(network, gen_path, s=(not self.opt['model']['finetune_norm']))
+            # if self.opt['phase'] == 'train':
+            #     # optimizer
+            #     opt = torch.load(opt_path)
+            #     self.optG.load_state_dict(opt['optimizer'])
+            #     self.begin_step = opt['iter']
+            #     self.begin_epoch = opt['epoch']

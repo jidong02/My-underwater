@@ -1,98 +1,106 @@
-{
+    {
     "name": "sr_ffhq",
-    "phase": "train", // train or val
-    "gpu_ids": [
-        0
-    ],
-    "path": { //set the path
-        "stage": "train", //change train or val folder to save
+    "phase": "train",
+    "gpu_ids": [0],
+
+    "path": {
+        "stage": "train",
         "log": "logs",
         "tb_logger": "tb_logger",
         "results": "results",
         "checkpoint": "checkpoint",
-        //"resume_state": null
-        "resume_state": "experiments_supervised/I950000_E3369" //pretrain model or training state
+        "resume_state": "experiments_supervised/I950000_E3369"
     },
+
     "datasets": {
         "train": {
-            "name": "Water",
-            "mode": "HR", // whether need LR img
-            "dataroot": "dataset/water_train_16_128",
-            "datatype": "img", //lmdb or img, path of img files
-            "l_resolution": 16, // low resolution need to super_resolution
-            "r_resolution": 128, // high resolution
-            "batch_size": 10,
-            "num_workers": 8,
-            "use_shuffle": true,
-            "data_len": -1 // -1 represents all data used in train
+        "name": "Water",
+        "mode": "HR",
+        "dataroot": "dataset/water_val_16_256",
+        "datatype": "img",
+        "l_resolution": 16,
+        "r_resolution": 256,
+        "batch_size": 10,
+        "num_workers": 8,
+        "use_shuffle": true,
+        "data_len": -1
         },
         "val": {
-            "name": "Water",
-            "mode": "HR",
-            "dataroot": "dataset/water_val_16_256",
-            "datatype": "img", //lmdb or img, path of img files
-            "l_resolution": 16,
-            "r_resolution": 256,
-            "data_len": -1 // data length in validation
+        "name": "Water",
+        "mode": "HR",
+        "dataroot": "dataset/water_val_16_256",
+        "datatype": "img",
+        "l_resolution": 16,
+        "r_resolution": 256,
+        "data_len": -1
         }
     },
+
     "model": {
-        "which_model_G": "trans", // use the ddpm or sr3 network structure
+        "which_model_G": "trans",
         "finetune_norm": false,
-        "unet": {
-            "in_channel": 6,
-            "out_channel": 3,
-            "inner_channel": 48,
-            "norm_groups": 24,
-            "channel_multiplier": [
-                1,
-                2,
-                4,
-                8,
-                8
-            ],
-            "attn_res": [
-                16
-            ],
-            "res_blocks": 2,
-            "dropout": 0.2
+        "prior_state": "/root/autodl-tmp/DM_underwater/prior_ckpts/256x256_diffusion_uncond.pt",
+
+        "beta_schedule": {
+        "train": {
+            "schedule": "linear",
+            "n_timestep": 2000,
+            "linear_start": 1e-6,
+            "linear_end": 1e-2
         },
-        "beta_schedule": { // use munual beta_schedule for acceleration
-            "train": {
-                "schedule": "linear",
-                "n_timestep": 2000,
-                "linear_start": 1e-6,
-                "linear_end": 1e-2
-            },
-            "val": {
-                "schedule": "linear",
-                "n_timestep": 2000,
-                "linear_start": 1e-6,
-                "linear_end": 1e-2
-            }
+        "val": {
+            "schedule": "linear",
+            "n_timestep": 2000,
+            "linear_start": 1e-6,
+            "linear_end": 1e-2
+        }
         },
+
         "diffusion": {
-            "image_size": 256,
-            "channels": 3, //sample channel
-            "conditional": true // unconditional generation or unconditional generation(super_resolution)
+        "image_size": 256,
+        "channels": 3,
+        "conditional": true
+        },
+
+        "unet": {
+        "in_channel": 6,
+        "out_channel": 3,
+        "inner_channel": 48,
+        "norm_groups": 16,
+        "channel_multiplier": [1, 2, 4, 8, 8],
+        "attn_res": [16],
+        "res_blocks": 2,
+        "dropout": 0.2
+        },
+
+        "fusion": {
+            "type": "residual_noise_fusion",
+            "hidden_ch": 64,
+            "train_fusion_only": true
         }
     },
+
     "train": {
         "n_iter": 1000000,
         "val_freq": 50000,
         "save_checkpoint_freq": 50000,
         "print_freq": 200,
         "optimizer": {
-            "type": "adam",
-            "lr": 1e-4
+        "type": "adam",
+        "lr": 0.0001
         },
-        "ema_scheduler": { // not used now
-            "step_start_ema": 5000,
-            "update_ema_every": 1,
-            "ema_decay": 0.9999
+        "ema_scheduler": {
+        "step_start_ema": 5000,
+        "update_ema_every": 1,
+        "ema_decay": 0.9999
         }
     },
+
     "wandb": {
         "project": "sr_ffhq"
+    },
+
+    "distributed": false,
+    "log_infer": false,
+    "enable_wandb": false
     }
-}

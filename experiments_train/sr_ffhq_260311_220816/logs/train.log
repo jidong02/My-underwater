@@ -1,0 +1,102 @@
+26-03-11 22:08:16.176 - INFO:   name: sr_ffhq
+  phase: train
+  gpu_ids: [0]
+  path:[
+    stage: experiments_train/sr_ffhq_260311_220816/train
+    log: experiments_train/sr_ffhq_260311_220816/logs
+    tb_logger: experiments_train/sr_ffhq_260311_220816/tb_logger
+    results: experiments_train/sr_ffhq_260311_220816/results
+    checkpoint: experiments_train/sr_ffhq_260311_220816/checkpoint
+    resume_state: experiments_supervised/I950000_E3369
+    experiments_root: experiments_train/sr_ffhq_260311_220816
+  ]
+  datasets:[
+    train:[
+      name: Water
+      mode: HR
+      dataroot: dataset/water_val_16_256
+      datatype: img
+      l_resolution: 16
+      r_resolution: 256
+      batch_size: 10
+      num_workers: 8
+      use_shuffle: True
+      data_len: -1
+    ]
+    val:[
+      name: Water
+      mode: HR
+      dataroot: dataset/water_val_16_256
+      datatype: img
+      l_resolution: 16
+      r_resolution: 256
+      data_len: 3
+    ]
+  ]
+  model:[
+    which_model_G: trans
+    finetune_norm: False
+    prior_state: /root/autodl-tmp/DM_underwater/prior_ckpts/256x256_diffusion_uncond.pt
+    beta_schedule:[
+      train:[
+        schedule: linear
+        n_timestep: 2000
+        linear_start: 1e-06
+        linear_end: 0.01
+      ]
+      val:[
+        schedule: linear
+        n_timestep: 2000
+        linear_start: 1e-06
+        linear_end: 0.01
+      ]
+    ]
+    diffusion:[
+      image_size: 256
+      channels: 3
+      conditional: True
+    ]
+    unet:[
+      in_channel: 6
+      out_channel: 3
+      inner_channel: 48
+      norm_groups: 16
+      channel_multiplier: [1, 2, 4, 8, 8]
+      attn_res: [16]
+      res_blocks: 2
+      dropout: 0.2
+    ]
+    fusion:[
+      type: residual_noise_fusion
+      hidden_ch: 64
+      train_fusion_only: True
+    ]
+  ]
+  train:[
+    n_iter: 1000000
+    val_freq: 50000
+    save_checkpoint_freq: 50000
+    print_freq: 200
+    optimizer:[
+      type: adam
+      lr: 0.0001
+    ]
+    ema_scheduler:[
+      step_start_ema: 5000
+      update_ema_every: 1
+      ema_decay: 0.9999
+    ]
+  ]
+  wandb:[
+    project: sr_ffhq
+  ]
+  distributed: False
+  log_infer: False
+  enable_wandb: False
+  log_wandb_ckpt: False
+  log_eval: False
+
+26-03-11 22:08:16.180 - INFO: Dataset [LRHRDataset2 - Water] is created.
+26-03-11 22:08:16.181 - INFO: Dataset [LRHRDataset2 - Water] is created.
+26-03-11 22:08:16.181 - INFO: Initial Dataset Finished
+26-03-11 22:08:29.822 - INFO: Loading pretrained model for G [experiments_supervised/I950000_E3369] ...

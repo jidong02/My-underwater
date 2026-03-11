@@ -310,10 +310,10 @@ class GaussianDiffusion(nn.Module):
         else:
             et_task = self.denoise_fn(x, t)
 
-        if self.use_fusion:
-            et_prior = torch.zeros_like(et_task)
-            alpha = self._alpha_from_t(t)
-            et = alpha * et_task + (1.0 - alpha) * et_prior
+        if self.use_fusion and (self.prior_denoise_fn is not None):
+            et_prior = self.prior_denoise_fn(x, t)
+            beta_t = 1.0 - self._alpha_from_t(t)   # prior strength
+            et = self.fusion_module(et_task, et_prior, x, t, beta_t)
         else:
             et = et_task
 
@@ -472,14 +472,19 @@ class GaussianDiffusion(nn.Module):
         x_noisy = self.q_sample(x_start=x_start, t=t, noise=noise)
 
         if not self.conditional:
-            x_recon = self.denoise_fn(x_noisy, t)
+            eps_task = self.denoise_fn(x_noisy, t)
         else:
-            x_recon = self.denoise_fn(
+            eps_task = self.denoise_fn(
                 torch.cat([condition_x, x_noisy], dim=1), t)
 
+        if self.use_fusion and (self.prior_denoise_fn is not None):
+            eps_prior = self.prior_denoise_fn(x_noisy, t)
+            beta_t = 1.0 - self._alpha_from_t(t)   # prior strength
+            eps_pred = self.fusion_module(eps_task, eps_prior, x_noisy, t, beta_t)
+        else:
+            eps_pred = eps_task
 
-        loss = self.loss_func(noise, x_recon)
-
+        loss = self.loss_func(noise, eps_pred)
         return loss
 
     def forward(self, x, flag, *args, **kwargs):
